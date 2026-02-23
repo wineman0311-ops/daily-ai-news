@@ -1,0 +1,22 @@
+# 敏感資訊（不上傳至 GitHub）
+.env
+
+# 執行日誌
+*.log
+ai_news.log
+
+# 自動產生的包裝腳本
+run_ai_news.sh
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
