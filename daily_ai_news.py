@@ -46,7 +46,11 @@ _load_env()
 # =====================================================================
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 BOT_TOKEN         = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-CHAT_ID           = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# 支援多個 Chat ID，以逗號分隔，例如：112966076,987654321
+_raw_ids  = os.environ.get("TELEGRAM_CHAT_ID", "")
+CHAT_IDS  = [cid.strip() for cid in _raw_ids.split(",") if cid.strip()]
+CHAT_ID   = CHAT_IDS[0] if CHAT_IDS else ""   # 向下相容
 
 # claude-haiku：快速、低成本（每次報告約 $0.001～0.003 美元）
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
@@ -276,48 +280,61 @@ def generate_report(raw_data: dict) -> str:
 
 
 # ─────────────────────────────────────────────────────────────
-# Telegram 發送
+# Telegram 發送（支援多個 Chat ID）
 # ─────────────────────────────────────────────────────────────
-def send_telegram(text, max_len=4000):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
+def _split_chunks(text, max_len=4000):
+    """將長文字切分成不超過 max_len 的片段"""
     if len(text) <= max_len:
-        chunks = [text]
-    else:
-        lines, chunks, buf = text.split("\n"), [], ""
-        for line in lines:
-            if len(buf) + len(line) + 1 > max_len:
-                chunks.append(buf)
-                buf = line
-            else:
-                buf = (buf + "\n" + line) if buf else line
-        if buf:
+        return [text]
+    lines, chunks, buf = text.split("\n"), [], ""
+    for line in lines:
+        if len(buf) + len(line) + 1 > max_len:
             chunks.append(buf)
+            buf = line
+        else:
+            buf = (buf + "\n" + line) if buf else line
+    if buf:
+        chunks.append(buf)
+    return chunks
 
+
+def _send_one_chunk(chat_id, text):
+    """向單一 Chat ID 發送一則訊息"""
+    url  = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = json.dumps({
+        "chat_id":                  chat_id,
+        "text":                     text,
+        "parse_mode":               "HTML",
+        "disable_web_page_preview": True,
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json; charset=utf-8")
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        print(f"  ❌ HTTP {e.code}: {body}", file=sys.stderr)
+        return {"ok": False}
+    except Exception as e:
+        print(f"  ❌ {e}", file=sys.stderr)
+        return {"ok": False}
+
+
+def send_telegram(text, max_len=4000):
+    """向所有 CHAT_IDS 發送訊息（支援多收件人）"""
+    chunks  = _split_chunks(text, max_len)
     results = []
-    for i, chunk in enumerate(chunks, 1):
-        data = json.dumps({
-            "chat_id":                  CHAT_ID,
-            "text":                     chunk,
-            "parse_mode":               "HTML",
-            "disable_web_page_preview": True,
-        }).encode("utf-8")
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header("Content-Type", "application/json; charset=utf-8")
-        try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-                res = json.loads(r.read().decode())
-                results.append(res)
-                ok  = res.get("ok")
-                mid = res.get("result", {}).get("message_id", "?")
-                print(f"  {'✅' if ok else '❌'} 第 {i}/{len(chunks)} 則（msg_id={mid}）")
-        except urllib.error.HTTPError as e:
-            body = e.read().decode(errors="replace")
-            print(f"  ❌ HTTP {e.code}: {body}", file=sys.stderr)
-            results.append({"ok": False})
-        except Exception as e:
-            print(f"  ❌ {e}", file=sys.stderr)
-            results.append({"ok": False})
+
+    for chat_id in CHAT_IDS:
+        print(f"  📨 發送至 Chat ID: {chat_id}")
+        for i, chunk in enumerate(chunks, 1):
+            res = _send_one_chunk(chat_id, chunk)
+            results.append(res)
+            ok  = res.get("ok")
+            mid = res.get("result", {}).get("message_id", "?")
+            print(f"    {'✅' if ok else '❌'} 第 {i}/{len(chunks)} 則（msg_id={mid}）")
+
     return results
 
 
@@ -336,12 +353,13 @@ def main():
     missing = [k for k, v in [
         ("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY),
         ("TELEGRAM_BOT_TOKEN", BOT_TOKEN),
-        ("TELEGRAM_CHAT_ID", CHAT_ID),
+        ("TELEGRAM_CHAT_ID", _raw_ids),
     ] if not v]
     if missing:
         print(f"❌ 缺少必要設定：{', '.join(missing)}")
         print("   請在同目錄建立 .env 檔（參考 .env.example）")
         sys.exit(1)
+    print(f"  📋 發送對象：{len(CHAT_IDS)} 個 Chat ID（{', '.join(CHAT_IDS)}）")
 
     # 收集原始資料
     print("📡 收集各來源資料中...")
