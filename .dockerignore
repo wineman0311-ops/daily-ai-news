@@ -1,0 +1,6 @@
+.env
+*.log
+.git
+__pycache__
+*.pyc
+run_ai_news.sh

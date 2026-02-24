@@ -5,6 +5,9 @@
 *.log
 ai_news.log
 
+# Docker build cache
+
+
 # 自動產生的包裝腳本
 run_ai_news.sh
 
