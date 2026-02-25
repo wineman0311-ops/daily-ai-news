@@ -17,6 +17,7 @@
 
 import os
 import sys
+import json
 import asyncio
 import threading
 import schedule
@@ -53,9 +54,13 @@ SCHEDULE_TIME = os.environ.get("SCHEDULE_TIME", "08:00").strip()
 TZ            = os.environ.get("TZ", "Asia/Taipei")
 
 # 新場關鍵字 log 路徑（與訂閱者資料同目錄）
-DATA_DIR  = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
-XINCHANG_LOG = DATA_DIR / "xinchang.log"
-KEYWORD   = "新場"
+DATA_DIR      = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
+XINCHANG_LOG  = DATA_DIR / "xinchang.log"
+KEYWORD       = "新場"
+
+# 版本追蹤
+VERSION_FILE      = Path(__file__).parent / "version.json"   # 隨程式碼部署
+LAST_VERSION_FILE = DATA_DIR / "last_version.txt"            # 記錄上次啟動版本
 
 DAY_ZH = {
     "monday": "週一", "tuesday": "週二", "wednesday": "週三",
@@ -265,6 +270,76 @@ async def msg_xinchang(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ═════════════════════════════════════════════════════════════
+# 版本更新廣播
+# ═════════════════════════════════════════════════════════════
+
+def _load_version_info() -> dict:
+    """讀取 version.json，回傳 {version, date, notes}；讀取失敗時回傳空 dict"""
+    try:
+        with open(VERSION_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _get_last_version() -> str:
+    """讀取上次啟動時儲存的版本號，無記錄時回傳空字串"""
+    try:
+        return LAST_VERSION_FILE.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _save_last_version(version: str):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    LAST_VERSION_FILE.write_text(version, encoding="utf-8")
+
+
+async def _on_startup(app):
+    """
+    Bot 啟動後呼叫（post_init hook）。
+    若版本號與上次不同，向所有訂閱者發送更新說明。
+    """
+    info = _load_version_info()
+    if not info:
+        return
+
+    current  = info.get("version", "")
+    last     = _get_last_version()
+    _save_last_version(current)
+
+    if not current or current == last:
+        return  # 版本相同，無需廣播
+
+    # 組版本通知訊息
+    date  = info.get("date", "")
+    notes = info.get("notes", [])
+    lines = "\n".join(f"  {n}" for n in notes) if notes else "  （無詳細說明）"
+
+    msg = (
+        f"🆕 <b>Bot 已更新至 v{current}</b>（{date}）\n\n"
+        f"<b>本次更新內容：</b>\n{lines}"
+    )
+
+    chat_ids = sub_mgr.get_chat_ids()
+    if not chat_ids:
+        print(f"[版本廣播] v{last} → v{current}，目前無訂閱者，略過發送", flush=True)
+        return
+
+    print(f"[版本廣播] v{last} → v{current}，發送給 {len(chat_ids)} 位訂閱者…", flush=True)
+    for cid in chat_ids:
+        try:
+            await app.bot.send_message(
+                chat_id    = cid,
+                text       = msg,
+                parse_mode = "HTML",
+            )
+        except Exception as e:
+            print(f"  ⚠️ 發送至 {cid} 失敗：{e}", flush=True)
+    print(f"  ✅ 版本廣播完成", flush=True)
+
+
+# ═════════════════════════════════════════════════════════════
 # 排程器（背景執行緒）
 # ═════════════════════════════════════════════════════════════
 
@@ -361,8 +436,8 @@ def main():
     print(f"  啟動時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
     print("=" * 54, flush=True)
 
-    # 建立 Bot 應用
-    app = Application.builder().token(BOT_TOKEN).build()
+    # 建立 Bot 應用（post_init：啟動後檢查版本並廣播更新）
+    app = Application.builder().token(BOT_TOKEN).post_init(_on_startup).build()
     app.add_handler(CommandHandler("start",       cmd_start))
     app.add_handler(CommandHandler("subscribe",   cmd_subscribe))
     app.add_handler(CommandHandler("unsubscribe", cmd_unsubscribe))
