@@ -40,7 +40,7 @@ def _load_env():
 _load_env()
 
 from telegram import Update, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 import daily_ai_news
 import subscribers as sub_mgr
@@ -50,6 +50,11 @@ BOT_TOKEN     = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 SCHEDULE_DAY  = os.environ.get("SCHEDULE_DAY",  "monday").strip().lower()
 SCHEDULE_TIME = os.environ.get("SCHEDULE_TIME", "08:00").strip()
 TZ            = os.environ.get("TZ", "Asia/Taipei")
+
+# 新場關鍵字 log 路徑（與訂閱者資料同目錄）
+DATA_DIR  = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
+XINCHANG_LOG = DATA_DIR / "xinchang.log"
+KEYWORD   = "新場"
 
 DAY_ZH = {
     "monday": "週一", "tuesday": "週二", "wednesday": "週三",
@@ -190,6 +195,51 @@ async def cmd_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ═════════════════════════════════════════════════════════════
+# 新場關鍵字監聽
+# ═════════════════════════════════════════════════════════════
+
+def _log_xinchang(entry: str):
+    """將新場訊息寫入 log 檔"""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(XINCHANG_LOG, "a", encoding="utf-8") as f:
+        f.write(entry + "\n")
+
+
+async def msg_xinchang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """偵測對話中含有「新場」的訊息，存 log 後回貼到對話"""
+    msg  = update.message
+    text = msg.text or ""
+
+    if KEYWORD not in text:
+        return  # 不含關鍵字，略過
+
+    user       = msg.from_user
+    username   = f"@{user.username}" if user.username else user.first_name
+    chat_title = msg.chat.title or "私聊"
+    ts         = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # ── 寫入 log ──────────────────────────────────────────────
+    log_entry = (
+        f"[{ts}] "
+        f"對話：{chat_title} | "
+        f"發話人：{username}（id={user.id}）| "
+        f"內容：{text}"
+    )
+    _log_xinchang(log_entry)
+    print(f"[新場紀錄] {log_entry}", flush=True)
+
+    # ── 回貼到對話 ────────────────────────────────────────────
+    await msg.reply_text(
+        f"📌 <b>新場訊息已記錄</b>\n\n"
+        f"🕐 時間：{ts}\n"
+        f"👤 發話人：{username}\n"
+        f"💬 內容：{text}\n\n"
+        f"<i>已儲存至 xinchang.log</i>",
+        parse_mode="HTML",
+    )
+
+
+# ═════════════════════════════════════════════════════════════
 # 排程器（背景執行緒）
 # ═════════════════════════════════════════════════════════════
 
@@ -260,6 +310,9 @@ def main():
     app.add_handler(CommandHandler("unsubscribe", cmd_unsubscribe))
     app.add_handler(CommandHandler("status",      cmd_status))
     app.add_handler(CommandHandler("preview",     cmd_preview))
+
+    # 監聽所有一般文字訊息，偵測「新場」關鍵字
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, msg_xinchang))
 
     print("📡 Bot 開始接收訊息...\n", flush=True)
     app.run_polling(drop_pending_updates=True)
