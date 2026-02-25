@@ -68,19 +68,44 @@ logging.basicConfig(
 # ═════════════════════════════════════════════════════════════
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    day_zh = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
-    await update.message.reply_text(
-        "👋 <b>嗨！我是每週 AI 快報小秘書</b>\n\n"
-        "我每週自動彙整 Reddit、Product Hunt、機器之心、量子位的最新 AI 資訊，"
-        "透過 Claude AI 深度分析後發送給您。\n\n"
-        "📌 <b>可用指令：</b>\n"
-        "  /subscribe   — 訂閱每週 AI 快報\n"
-        "  /unsubscribe — 取消訂閱\n"
-        "  /status      — 查看訂閱狀態\n"
-        "  /preview     — 立即取得最新一期快報（需稍等約 30 秒）\n\n"
-        f"⏰ <b>發送時間：</b>每{day_zh} {SCHEDULE_TIME}（{TZ}）",
-        parse_mode="HTML",
-    )
+    chat_id    = update.effective_chat.id
+    username   = update.effective_user.username
+    first_name = update.effective_user.first_name or "朋友"
+    day_zh     = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+
+    # 第一次加入時自動訂閱
+    is_new = sub_mgr.subscribe(chat_id, username, first_name)
+
+    if is_new:
+        # 全新使用者：自動訂閱 + 歡迎說明
+        await update.message.reply_text(
+            f"👋 <b>嗨，{first_name}！歡迎使用每週 AI 快報小秘書 🤖</b>\n\n"
+            "我每週自動彙整來自 Reddit、Product Hunt、機器之心、量子位的最新 AI 資訊，"
+            "並透過 Claude AI 深度分析後發送給您。\n\n"
+            "✅ <b>已自動為您開啟訂閱！</b>\n"
+            f"📅 每{day_zh} {SCHEDULE_TIME}（{TZ}）您將收到 AI 週報。\n\n"
+            "📌 <b>可用指令：</b>\n"
+            "  /subscribe   — 訂閱每週 AI 快報\n"
+            "  /unsubscribe — 取消訂閱\n"
+            "  /status      — 查看訂閱狀態與人數\n"
+            "  /preview     — 立即取得最新一期快報（約需 30 秒）\n\n"
+            "💡 如不想繼續接收，可隨時輸入 /unsubscribe 取消。",
+            parse_mode="HTML",
+        )
+        print(f"[新訂閱] {first_name}（@{username}，{chat_id}）", flush=True)
+    else:
+        # 已訂閱使用者：顯示指令說明
+        await update.message.reply_text(
+            f"👋 <b>嗨，{first_name}！</b>\n\n"
+            "您已訂閱每週 AI 快報 ✅\n\n"
+            "📌 <b>可用指令：</b>\n"
+            "  /subscribe   — 訂閱每週 AI 快報\n"
+            "  /unsubscribe — 取消訂閱\n"
+            "  /status      — 查看訂閱狀態與人數\n"
+            "  /preview     — 立即取得最新一期快報（約需 30 秒）\n\n"
+            f"⏰ <b>發送時間：</b>每{day_zh} {SCHEDULE_TIME}（{TZ}）",
+            parse_mode="HTML",
+        )
 
 
 async def cmd_subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
