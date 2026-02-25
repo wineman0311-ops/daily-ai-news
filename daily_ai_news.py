@@ -321,12 +321,13 @@ def _send_one_chunk(chat_id, text):
         return {"ok": False}
 
 
-def send_telegram(text, max_len=4000):
-    """向所有 CHAT_IDS 發送訊息（支援多收件人）"""
+def send_telegram(text, target_ids=None, max_len=4000):
+    """向指定 target_ids 發送訊息；未指定時使用環境變數的 CHAT_IDS"""
+    ids     = target_ids if target_ids is not None else CHAT_IDS
     chunks  = _split_chunks(text, max_len)
     results = []
 
-    for chat_id in CHAT_IDS:
+    for chat_id in ids:
         print(f"  📨 發送至 Chat ID: {chat_id}")
         for i, chunk in enumerate(chunks, 1):
             res = _send_one_chunk(chat_id, chunk)
@@ -341,8 +342,13 @@ def send_telegram(text, max_len=4000):
 # ─────────────────────────────────────────────────────────────
 # 主程式
 # ─────────────────────────────────────────────────────────────
-def main():
+def main(override_chat_ids=None):
+    """
+    override_chat_ids: 由外部（bot.py）傳入的收件人清單。
+                       None 時使用環境變數 TELEGRAM_CHAT_ID。
+    """
     test_mode = "--test" in sys.argv
+    target    = override_chat_ids if override_chat_ids is not None else CHAT_IDS
 
     print(f"\n{'='*54}")
     print(f"  🤖 每週 AI 快報 v2 {'【測試模式】' if test_mode else ''}")
@@ -353,13 +359,14 @@ def main():
     missing = [k for k, v in [
         ("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY),
         ("TELEGRAM_BOT_TOKEN", BOT_TOKEN),
-        ("TELEGRAM_CHAT_ID", _raw_ids),
     ] if not v]
+    if override_chat_ids is None and not _raw_ids:
+        missing.append("TELEGRAM_CHAT_ID")
     if missing:
         print(f"❌ 缺少必要設定：{', '.join(missing)}")
         print("   請在同目錄建立 .env 檔（參考 .env.example）")
         sys.exit(1)
-    print(f"  📋 發送對象：{len(CHAT_IDS)} 個 Chat ID（{', '.join(CHAT_IDS)}）")
+    print(f"  📋 發送對象：{len(target)} 個 Chat ID（{', '.join(target)}）")
 
     # 收集原始資料
     print("📡 收集各來源資料中...")

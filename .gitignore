@@ -1,6 +1,9 @@
 # 敏感資訊（不上傳至 GitHub）
 .env
 
+# 訂閱者資料（由 Bot 動態產生，不上傳 GitHub）
+data/
+
 # 執行日誌
 *.log
 ai_news.log

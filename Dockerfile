@@ -23,7 +23,7 @@ COPY . .
 # ── 環境變數（由 Zeabur Dashboard 設定，這裡僅為預設提示）───
 # ANTHROPIC_API_KEY=  ← 請在 Zeabur 環境變數中設定
 # TELEGRAM_BOT_TOKEN= ← 請在 Zeabur 環境變數中設定
-# TELEGRAM_CHAT_ID=   ← 請在 Zeabur 環境變數中設定
+# DATA_DIR=/app/data  ← 請掛載 Volume 至此路徑確保訂閱資料持久化
 
-# ── 啟動排程器 ───────────────────────────────────────────────
-CMD ["python", "-u", "scheduler.py"]
+# ── 啟動 Bot（含訂閱管理 + 排程器）─────────────────────────
+CMD ["python", "-u", "bot.py"]
