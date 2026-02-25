@@ -172,27 +172,51 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """立即生成並發送給當前使用者（不影響其他訂閱者）"""
+    """
+    優先從快取讀取本期報告發送給當前使用者；
+    無快取時才呼叫 Claude API 生成（並存入快取供下次使用）。
+    """
     if not sub_mgr.is_subscribed(update.effective_chat.id):
         await update.message.reply_text(
             "⚠️ 請先訂閱才能使用預覽功能。\n輸入 /subscribe 開始訂閱。"
         )
         return
 
-    await update.message.reply_text("⏳ 正在生成本週 AI 快報，約需 20～40 秒，請稍候...")
-
     chat_id = str(update.effective_chat.id)
-    loop = asyncio.get_event_loop()
+    loop    = asyncio.get_running_loop()
 
-    def blocking():
+    # ── 優先讀取快取 ──────────────────────────────────────────
+    cache_info = daily_ai_news.get_cache_info()
+    if cache_info and cache_info.get("report"):
+        generated_at = cache_info.get("generated_at", "")[:16].replace("T", " ")
+        await update.message.reply_text(
+            f"📋 讀取本期快取報告（生成於 {generated_at}）…"
+        )
+        cached_report = cache_info["report"]
+
+        def send_cached():
+            try:
+                daily_ai_news.send_telegram(cached_report, target_ids=[chat_id])
+            except Exception as e:
+                print(f"[preview cache send error] {e}", flush=True)
+
+        await loop.run_in_executor(None, send_cached)
+        return
+
+    # ── 無快取：重新生成並存入快取 ───────────────────────────
+    await update.message.reply_text(
+        "⏳ 本期快報尚未生成，正在向 Claude AI 取得資料，約需 20～40 秒，請稍候…"
+    )
+
+    def generate_and_send():
         try:
             daily_ai_news.main(override_chat_ids=[chat_id])
         except SystemExit:
             pass
         except Exception as e:
-            print(f"[preview error] {e}", flush=True)
+            print(f"[preview generate error] {e}", flush=True)
 
-    await loop.run_in_executor(None, blocking)
+    await loop.run_in_executor(None, generate_and_send)
 
 
 # ═════════════════════════════════════════════════════════════

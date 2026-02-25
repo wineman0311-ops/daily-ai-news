@@ -55,6 +55,10 @@ CHAT_ID   = CHAT_IDS[0] if CHAT_IDS else ""   # 向下相容
 # claude-haiku：快速、低成本（每次報告約 $0.001～0.003 美元）
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 TIMEOUT      = 25
+
+# 報告快取（每次生成後存檔，/preview 優先從此讀取）
+DATA_DIR          = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
+REPORT_CACHE_FILE = DATA_DIR / "report_cache.json"
 # =====================================================================
 
 HEADERS = {
@@ -280,6 +284,44 @@ def generate_report(raw_data: dict) -> str:
 
 
 # ─────────────────────────────────────────────────────────────
+# 報告快取：生成後存檔，/preview 優先讀取不重呼 API
+# ─────────────────────────────────────────────────────────────
+def save_report_cache(report: str):
+    """將本期報告存入快取檔"""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    cache = {
+        "generated_at": datetime.now().isoformat(),
+        "report":        report,
+    }
+    with open(REPORT_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+    print(f"  💾 報告已存入快取（{REPORT_CACHE_FILE}）", flush=True)
+
+
+def load_report_cache() -> str | None:
+    """讀取快取報告，回傳報告文字；無快取時回傳 None"""
+    if not REPORT_CACHE_FILE.exists():
+        return None
+    try:
+        with open(REPORT_CACHE_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("report")
+    except Exception:
+        return None
+
+
+def get_cache_info() -> dict | None:
+    """讀取快取元資訊（生成時間等），無快取時回傳 None"""
+    if not REPORT_CACHE_FILE.exists():
+        return None
+    try:
+        with open(REPORT_CACHE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+# ─────────────────────────────────────────────────────────────
 # Telegram 發送（支援多個 Chat ID）
 # ─────────────────────────────────────────────────────────────
 def _split_chunks(text, max_len=4000):
@@ -390,6 +432,9 @@ def main(override_chat_ids=None):
     print("🧠 Claude 生成深度分析報告中（約 10～20 秒）...")
     report = generate_report(raw)
     print(f"  ✅ 報告生成完成（{len(report)} 字元）\n")
+
+    # 存入快取，供後續 /preview 直接讀取
+    save_report_cache(report)
 
     if test_mode:
         print("─── 報告預覽 " + "─" * 40)
