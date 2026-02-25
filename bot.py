@@ -23,6 +23,7 @@ import schedule
 import time
 import logging
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from pathlib import Path
 
 # ── 載入 .env（本地開發用）────────────────────────────────────
@@ -243,6 +244,33 @@ async def msg_xinchang(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 排程器（背景執行緒）
 # ═════════════════════════════════════════════════════════════
 
+def _cleanup_xinchang_log():
+    """每月1日執行：刪除 xinchang.log 中上個月的記錄"""
+    if not XINCHANG_LOG.exists():
+        return
+
+    now        = datetime.now()
+    last_month = now - relativedelta(months=1)
+    prefix     = last_month.strftime("[%Y-%m-")   # 例如 "[2026-01-"
+
+    with open(XINCHANG_LOG, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    kept    = [l for l in lines if not l.startswith(prefix)]
+    removed = len(lines) - len(kept)
+
+    with open(XINCHANG_LOG, "w", encoding="utf-8") as f:
+        f.writelines(kept)
+
+    ts = now.strftime("%Y-%m-%d %H:%M:%S")
+    print(
+        f"[{ts}] 🗑️ xinchang.log 清理完成："
+        f"刪除 {last_month.strftime('%Y年%m月')} 共 {removed} 筆，"
+        f"保留 {len(kept)} 筆",
+        flush=True,
+    )
+
+
 def _weekly_job():
     chat_ids = sub_mgr.get_chat_ids()
     now      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -267,9 +295,15 @@ def _run_scheduler():
 
     getattr(schedule.every(), SCHEDULE_DAY).at(SCHEDULE_TIME).do(_weekly_job)
 
+    # 每月 1 日 00:05 清理上個月的新場 log
+    schedule.every().day.at("00:05").do(
+        lambda: _cleanup_xinchang_log() if datetime.now().day == 1 else None
+    )
+
     day_zh   = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
     next_run = schedule.next_run()
     print(f"⏰ 排程：每{day_zh} {SCHEDULE_TIME} | 下次：{next_run.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+    print(f"🗑️ 排程：每月 1 日 00:05 自動清除上月新場 log", flush=True)
 
     while True:
         schedule.run_pending()
