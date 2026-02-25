@@ -399,7 +399,7 @@ def main(override_chat_ids=None):
         return
 
     print("📤 發送至 Telegram...")
-    results = send_telegram(report)
+    results = send_telegram(report, target_ids=target)
     ok = sum(1 for r in results if r.get("ok"))
     print(f"\n{'✅' if ok == len(results) else '⚠️'} 完成！成功 {ok}/{len(results)} 則")
     if ok < len(results):
