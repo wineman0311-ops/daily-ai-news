@@ -235,6 +235,22 @@ def _log_xinchang(entry: str):
         f.write(entry + "\n")
 
 
+async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """處理所有未知指令，回覆無此指令並附上說明"""
+    day_zh = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    await update.message.reply_text(
+        "❓ <b>無此指令</b>\n\n"
+        "📌 <b>可用指令列表：</b>\n"
+        "  /start       — 啟動 Bot 並查看說明\n"
+        "  /subscribe   — 訂閱每週 AI 快報\n"
+        "  /unsubscribe — 取消訂閱\n"
+        "  /status      — 查看訂閱狀態與人數\n"
+        "  /preview     — 立即取得最新一期快報\n\n"
+        f"⏰ <b>發送時間：</b>每{day_zh} {SCHEDULE_TIME}（{TZ}）",
+        parse_mode="HTML",
+    )
+
+
 async def msg_xinchang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """偵測對話中含有「新場」的訊息，存 log 後回貼到對話"""
     msg  = update.message
@@ -443,6 +459,9 @@ def main():
     app.add_handler(CommandHandler("unsubscribe", cmd_unsubscribe))
     app.add_handler(CommandHandler("status",      cmd_status))
     app.add_handler(CommandHandler("preview",     cmd_preview))
+
+    # 未知指令：回覆無此指令 + 指令說明（必須在所有 CommandHandler 之後）
+    app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
     # 監聽所有一般文字訊息，偵測「新場」關鍵字
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, msg_xinchang))
