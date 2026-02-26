@@ -66,7 +66,17 @@ DAY_ZH = {
     "monday": "週一", "tuesday": "週二", "wednesday": "週三",
     "thursday": "週四", "friday": "週五", "saturday": "週六", "sunday": "週日",
 }
+DAY_EN = {
+    "monday": "Monday", "tuesday": "Tuesday", "wednesday": "Wednesday",
+    "thursday": "Thursday", "friday": "Friday", "saturday": "Saturday", "sunday": "Sunday",
+}
 DAY_VALID = list(DAY_ZH.keys())
+
+
+def _is_english(update: Update) -> bool:
+    """偵測使用者的 Telegram 語言設定是否為英文"""
+    lang = (update.effective_user.language_code or "").lower()
+    return lang.startswith("en")
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -81,99 +91,166 @@ logging.basicConfig(
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id    = update.effective_chat.id
     username   = update.effective_user.username
-    first_name = update.effective_user.first_name or "朋友"
-    day_zh     = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    first_name = update.effective_user.first_name or ("Friend" if _is_english(update) else "朋友")
+    en         = _is_english(update)
+    day_label  = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
 
     # 第一次加入時自動訂閱
     is_new = sub_mgr.subscribe(chat_id, username, first_name)
 
     if is_new:
-        # 全新使用者：自動訂閱 + 歡迎說明
-        await update.message.reply_text(
-            f"👋 <b>嗨，{first_name}！歡迎使用每週 AI 快報小秘書 🤖</b>\n\n"
-            "我每週自動彙整來自 Reddit、Product Hunt、機器之心、量子位的最新 AI 資訊，"
-            "並透過 Claude AI 深度分析後發送給您。\n\n"
-            "✅ <b>已自動為您開啟訂閱！</b>\n"
-            f"📅 每{day_zh} {SCHEDULE_TIME}（{TZ}）您將收到 AI 週報。\n\n"
-            "📌 <b>可用指令：</b>\n"
-            "  /subscribe   — 訂閱每週 AI 快報\n"
-            "  /unsubscribe — 取消訂閱\n"
-            "  /status      — 查看訂閱狀態與人數\n"
-            "  /preview     — 立即取得最新一期快報（約需 30 秒）\n\n"
-            "💡 如不想繼續接收，可隨時輸入 /unsubscribe 取消。",
-            parse_mode="HTML",
-        )
+        if en:
+            await update.message.reply_text(
+                f"👋 <b>Hi {first_name}! Welcome to the Weekly AI Newsletter Bot 🤖</b>\n\n"
+                "I automatically collect the latest AI news from Reddit, Product Hunt, and top tech media "
+                "every week, then send you a deep-dive report powered by Claude AI.\n\n"
+                "✅ <b>You've been subscribed automatically!</b>\n"
+                f"📅 You'll receive the AI Weekly Report every {day_label} at {SCHEDULE_TIME} ({TZ}).\n\n"
+                "📌 <b>Available commands:</b>\n"
+                "  /subscribe   — Subscribe to the weekly AI report\n"
+                "  /unsubscribe — Unsubscribe\n"
+                "  /status      — Check subscription status\n"
+                "  /preview     — Get the latest report now (~30 sec)\n\n"
+                "💡 You can unsubscribe anytime with /unsubscribe.",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(
+                f"👋 <b>嗨，{first_name}！歡迎使用每週 AI 快報小秘書 🤖</b>\n\n"
+                "我每週自動彙整來自 Reddit、Product Hunt、機器之心、量子位的最新 AI 資訊，"
+                "並透過 Claude AI 深度分析後發送給您。\n\n"
+                "✅ <b>已自動為您開啟訂閱！</b>\n"
+                f"📅 每{day_label} {SCHEDULE_TIME}（{TZ}）您將收到 AI 週報。\n\n"
+                "📌 <b>可用指令：</b>\n"
+                "  /subscribe   — 訂閱每週 AI 快報\n"
+                "  /unsubscribe — 取消訂閱\n"
+                "  /status      — 查看訂閱狀態與人數\n"
+                "  /preview     — 立即取得最新一期快報（約需 30 秒）\n\n"
+                "💡 如不想繼續接收，可隨時輸入 /unsubscribe 取消。",
+                parse_mode="HTML",
+            )
         print(f"[新訂閱] {first_name}（@{username}，{chat_id}）", flush=True)
     else:
-        # 已訂閱使用者：顯示指令說明
-        await update.message.reply_text(
-            f"👋 <b>嗨，{first_name}！</b>\n\n"
-            "您已訂閱每週 AI 快報 ✅\n\n"
-            "📌 <b>可用指令：</b>\n"
-            "  /subscribe   — 訂閱每週 AI 快報\n"
-            "  /unsubscribe — 取消訂閱\n"
-            "  /status      — 查看訂閱狀態與人數\n"
-            "  /preview     — 立即取得最新一期快報（約需 30 秒）\n\n"
-            f"⏰ <b>發送時間：</b>每{day_zh} {SCHEDULE_TIME}（{TZ}）",
-            parse_mode="HTML",
-        )
+        if en:
+            await update.message.reply_text(
+                f"👋 <b>Hi {first_name}!</b>\n\n"
+                "You're already subscribed to the Weekly AI Report ✅\n\n"
+                "📌 <b>Available commands:</b>\n"
+                "  /subscribe   — Subscribe to the weekly AI report\n"
+                "  /unsubscribe — Unsubscribe\n"
+                "  /status      — Check subscription status\n"
+                "  /preview     — Get the latest report now (~30 sec)\n\n"
+                f"⏰ <b>Delivery time:</b> Every {day_label} at {SCHEDULE_TIME} ({TZ})",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(
+                f"👋 <b>嗨，{first_name}！</b>\n\n"
+                "您已訂閱每週 AI 快報 ✅\n\n"
+                "📌 <b>可用指令：</b>\n"
+                "  /subscribe   — 訂閱每週 AI 快報\n"
+                "  /unsubscribe — 取消訂閱\n"
+                "  /status      — 查看訂閱狀態與人數\n"
+                "  /preview     — 立即取得最新一期快報（約需 30 秒）\n\n"
+                f"⏰ <b>發送時間：</b>每{day_label} {SCHEDULE_TIME}（{TZ}）",
+                parse_mode="HTML",
+            )
 
 
 async def cmd_subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id    = update.effective_chat.id
     username   = update.effective_user.username
     first_name = update.effective_user.first_name or ""
-    day_zh     = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    en         = _is_english(update)
+    day_label  = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
 
     is_new = sub_mgr.subscribe(chat_id, username, first_name)
     if is_new:
-        await update.message.reply_text(
-            f"✅ <b>訂閱成功！</b>\n\n"
-            f"您將在每{day_zh} {SCHEDULE_TIME} 收到 AI 週報。\n"
-            "輸入 /unsubscribe 可隨時取消。",
-            parse_mode="HTML",
-        )
+        if en:
+            await update.message.reply_text(
+                f"✅ <b>Subscribed successfully!</b>\n\n"
+                f"You'll receive the AI Weekly Report every {day_label} at {SCHEDULE_TIME}.\n"
+                "Use /unsubscribe to cancel anytime.",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(
+                f"✅ <b>訂閱成功！</b>\n\n"
+                f"您將在每{day_label} {SCHEDULE_TIME} 收到 AI 週報。\n"
+                "輸入 /unsubscribe 可隨時取消。",
+                parse_mode="HTML",
+            )
         print(f"[訂閱] {first_name}（@{username}，{chat_id}）", flush=True)
     else:
-        await update.message.reply_text(
-            "ℹ️ 您已訂閱，無需重複操作。\n"
-            "輸入 /unsubscribe 可取消訂閱。"
-        )
+        if en:
+            await update.message.reply_text(
+                "ℹ️ You're already subscribed.\n"
+                "Use /unsubscribe to cancel your subscription."
+            )
+        else:
+            await update.message.reply_text(
+                "ℹ️ 您已訂閱，無需重複操作。\n"
+                "輸入 /unsubscribe 可取消訂閱。"
+            )
 
 
 async def cmd_unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id    = update.effective_chat.id
     username   = update.effective_user.username
     first_name = update.effective_user.first_name or ""
+    en         = _is_english(update)
 
     removed = sub_mgr.unsubscribe(chat_id)
     if removed:
-        await update.message.reply_text(
-            "✅ 已取消訂閱，您將不再收到每週快報。\n"
-            "如需重新訂閱，輸入 /subscribe 即可。"
-        )
+        if en:
+            await update.message.reply_text(
+                "✅ Unsubscribed successfully. You won't receive any more weekly reports.\n"
+                "Use /subscribe to resubscribe anytime."
+            )
+        else:
+            await update.message.reply_text(
+                "✅ 已取消訂閱，您將不再收到每週快報。\n"
+                "如需重新訂閱，輸入 /subscribe 即可。"
+            )
         print(f"[取消訂閱] {first_name}（@{username}，{chat_id}）", flush=True)
     else:
-        await update.message.reply_text(
-            "ℹ️ 您尚未訂閱。\n"
-            "輸入 /subscribe 開始訂閱每週 AI 快報。"
-        )
+        if en:
+            await update.message.reply_text(
+                "ℹ️ You're not subscribed yet.\n"
+                "Use /subscribe to start receiving the weekly AI report."
+            )
+        else:
+            await update.message.reply_text(
+                "ℹ️ 您尚未訂閱。\n"
+                "輸入 /subscribe 開始訂閱每週 AI 快報。"
+            )
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id   = update.effective_chat.id
+    chat_id    = update.effective_chat.id
     subscribed = sub_mgr.is_subscribed(chat_id)
     count      = sub_mgr.get_count()
-    day_zh     = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    en         = _is_english(update)
+    day_label  = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
 
-    status_icon = "✅ 已訂閱" if subscribed else "❌ 未訂閱"
-    await update.message.reply_text(
-        f"📊 <b>訂閱狀態：</b>{status_icon}\n"
-        f"⏰ <b>發送時間：</b>每{day_zh} {SCHEDULE_TIME}\n"
-        f"🌏 <b>時區：</b>{TZ}\n"
-        f"👥 <b>目前訂閱人數：</b>{count} 人",
-        parse_mode="HTML",
-    )
+    if en:
+        status_icon = "✅ Subscribed" if subscribed else "❌ Not subscribed"
+        await update.message.reply_text(
+            f"📊 <b>Subscription:</b> {status_icon}\n"
+            f"⏰ <b>Delivery:</b> Every {day_label} at {SCHEDULE_TIME}\n"
+            f"🌏 <b>Timezone:</b> {TZ}\n"
+            f"👥 <b>Total subscribers:</b> {count}",
+            parse_mode="HTML",
+        )
+    else:
+        status_icon = "✅ 已訂閱" if subscribed else "❌ 未訂閱"
+        await update.message.reply_text(
+            f"📊 <b>訂閱狀態：</b>{status_icon}\n"
+            f"⏰ <b>發送時間：</b>每{day_label} {SCHEDULE_TIME}\n"
+            f"🌏 <b>時區：</b>{TZ}\n"
+            f"👥 <b>目前訂閱人數：</b>{count} 人",
+            parse_mode="HTML",
+        )
 
 
 async def cmd_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,10 +258,17 @@ async def cmd_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
     優先從快取讀取本期報告發送給當前使用者；
     無快取時才呼叫 Claude API 生成（並存入快取供下次使用）。
     """
+    en = _is_english(update)
+
     if not sub_mgr.is_subscribed(update.effective_chat.id):
-        await update.message.reply_text(
-            "⚠️ 請先訂閱才能使用預覽功能。\n輸入 /subscribe 開始訂閱。"
-        )
+        if en:
+            await update.message.reply_text(
+                "⚠️ Please subscribe first to use this feature.\nUse /subscribe to get started."
+            )
+        else:
+            await update.message.reply_text(
+                "⚠️ 請先訂閱才能使用預覽功能。\n輸入 /subscribe 開始訂閱。"
+            )
         return
 
     chat_id = str(update.effective_chat.id)
@@ -194,9 +278,14 @@ async def cmd_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cache_info = daily_ai_news.get_cache_info()
     if cache_info and cache_info.get("report"):
         generated_at = cache_info.get("generated_at", "")[:16].replace("T", " ")
-        await update.message.reply_text(
-            f"📋 讀取本期快取報告（生成於 {generated_at}）…"
-        )
+        if en:
+            await update.message.reply_text(
+                f"📋 Loading cached report (generated at {generated_at})…"
+            )
+        else:
+            await update.message.reply_text(
+                f"📋 讀取本期快取報告（生成於 {generated_at}）…"
+            )
         cached_report = cache_info["report"]
 
         def send_cached():
@@ -209,9 +298,14 @@ async def cmd_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── 無快取：重新生成並存入快取 ───────────────────────────
-    await update.message.reply_text(
-        "⏳ 本期快報尚未生成，正在向 Claude AI 取得資料，約需 20～40 秒，請稍候…"
-    )
+    if en:
+        await update.message.reply_text(
+            "⏳ No cached report yet. Fetching data and generating report via Claude AI, please wait ~20–40 seconds…"
+        )
+    else:
+        await update.message.reply_text(
+            "⏳ 本期快報尚未生成，正在向 Claude AI 取得資料，約需 20～40 秒，請稍候…"
+        )
 
     def generate_and_send():
         try:
@@ -237,18 +331,33 @@ def _log_xinchang(entry: str):
 
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """處理所有未知指令，回覆無此指令並附上說明"""
-    day_zh = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
-    await update.message.reply_text(
-        "❓ <b>無此指令</b>\n\n"
-        "📌 <b>可用指令列表：</b>\n"
-        "  /start       — 啟動 Bot 並查看說明\n"
-        "  /subscribe   — 訂閱每週 AI 快報\n"
-        "  /unsubscribe — 取消訂閱\n"
-        "  /status      — 查看訂閱狀態與人數\n"
-        "  /preview     — 立即取得最新一期快報\n\n"
-        f"⏰ <b>發送時間：</b>每{day_zh} {SCHEDULE_TIME}（{TZ}）",
-        parse_mode="HTML",
-    )
+    en        = _is_english(update)
+    day_label = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+
+    if en:
+        await update.message.reply_text(
+            "❓ <b>Unknown command</b>\n\n"
+            "📌 <b>Available commands:</b>\n"
+            "  /start       — Start the bot and view instructions\n"
+            "  /subscribe   — Subscribe to the weekly AI report\n"
+            "  /unsubscribe — Unsubscribe\n"
+            "  /status      — Check subscription status\n"
+            "  /preview     — Get the latest report now\n\n"
+            f"⏰ <b>Delivery time:</b> Every {day_label} at {SCHEDULE_TIME} ({TZ})",
+            parse_mode="HTML",
+        )
+    else:
+        await update.message.reply_text(
+            "❓ <b>無此指令</b>\n\n"
+            "📌 <b>可用指令列表：</b>\n"
+            "  /start       — 啟動 Bot 並查看說明\n"
+            "  /subscribe   — 訂閱每週 AI 快報\n"
+            "  /unsubscribe — 取消訂閱\n"
+            "  /status      — 查看訂閱狀態與人數\n"
+            "  /preview     — 立即取得最新一期快報\n\n"
+            f"⏰ <b>發送時間：</b>每{day_label} {SCHEDULE_TIME}（{TZ}）",
+            parse_mode="HTML",
+        )
 
 
 async def msg_xinchang(update: Update, context: ContextTypes.DEFAULT_TYPE):
