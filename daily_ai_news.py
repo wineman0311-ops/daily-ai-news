@@ -57,8 +57,9 @@ CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 TIMEOUT      = 25
 
 # 報告快取（每次生成後存檔，/preview 優先從此讀取）
-DATA_DIR          = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
-REPORT_CACHE_FILE = DATA_DIR / "report_cache.json"
+DATA_DIR            = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
+REPORT_CACHE_FILE   = DATA_DIR / "report_cache.json"
+PREV_TITLES_FILE    = DATA_DIR / "prev_titles.json"   # 上期已報導標題，用於去重
 # =====================================================================
 
 HEADERS = {
@@ -120,7 +121,34 @@ def fetch_reddit(top_n=8):
 
 
 # ─────────────────────────────────────────────────────────────
-# 資料收集：RSS（Product Hunt / 機器之心 / 量子位）
+# 上期標題去重：避免本週報告重複上週新聞
+# ─────────────────────────────────────────────────────────────
+def load_prev_titles() -> list[str]:
+    """讀取上期已報導的標題清單"""
+    if not PREV_TITLES_FILE.exists():
+        return []
+    try:
+        with open(PREV_TITLES_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_prev_titles(titles: list[str]):
+    """將本期標題存檔，供下期去重使用"""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(PREV_TITLES_FILE, "w", encoding="utf-8") as f:
+        json.dump(titles[:80], f, ensure_ascii=False, indent=2)
+
+
+def _is_duplicate(title: str, prev_titles: list[str], threshold: int = 10) -> bool:
+    """判斷標題是否與上期重複（取前 threshold 個字元做模糊比對）"""
+    t = title.lower()[:threshold]
+    return any(t and t in p.lower() for p in prev_titles)
+
+
+# ─────────────────────────────────────────────────────────────
+# 資料收集：RSS（Product Hunt / 機器之心 / 量子位 / 官方 Blog 等）
 # ─────────────────────────────────────────────────────────────
 def fetch_rss(url, source_name, max_items=5, ai_filter=False):
     AI_KW = [
@@ -176,14 +204,38 @@ def generate_report(raw_data: dict) -> str:
 
     # 整理原始資料文字
     ctx = []
+
+    # 歐美來源
     if raw_data.get("reddit"):
         ctx.append("【Reddit 熱門貼文（依讚數排序）】")
         for p in raw_data["reddit"]:
             ctx.append(f"- [{p['source']}] {p['title']}  ⬆️{p['score']} 💬{p['comments']}  {p['url']}")
+    if raw_data.get("openai"):
+        ctx.append("\n【OpenAI Blog 最新文章】")
+        for p in raw_data["openai"]:
+            ctx.append(f"- {p['title']} | {p['url']}")
+    if raw_data.get("anthropic"):
+        ctx.append("\n【Anthropic Blog 最新文章】")
+        for p in raw_data["anthropic"]:
+            ctx.append(f"- {p['title']} | {p['url']}")
+    if raw_data.get("deepmind"):
+        ctx.append("\n【Google DeepMind Blog 最新文章】")
+        for p in raw_data["deepmind"]:
+            ctx.append(f"- {p['title']} | {p['url']}")
     if raw_data.get("producthunt"):
         ctx.append("\n【Product Hunt 今日 AI 工具】")
         for p in raw_data["producthunt"]:
             ctx.append(f"- {p['title']} | {p.get('summary','')} | {p['url']}")
+    if raw_data.get("techinasia"):
+        ctx.append("\n【Tech in Asia 最新 AI 報導】")
+        for p in raw_data["techinasia"]:
+            ctx.append(f"- {p['title']} | {p['url']}")
+    if raw_data.get("cna"):
+        ctx.append("\n【CNA Tech 最新科技新聞】")
+        for p in raw_data["cna"]:
+            ctx.append(f"- {p['title']} | {p['url']}")
+
+    # 中文來源
     if raw_data.get("jiqizhixin"):
         ctx.append("\n【機器之心 最新文章】")
         for p in raw_data["jiqizhixin"]:
@@ -195,7 +247,19 @@ def generate_report(raw_data: dict) -> str:
 
     context = "\n".join(ctx) if ctx else "（本週外部資料抓取受限，請以你對 AI 產業的最新知識補充）"
 
+    # 上期標題（去重用）
+    prev_titles = load_prev_titles()
+    prev_titles_str = ""
+    if prev_titles:
+        sample = prev_titles[:20]
+        prev_titles_str = "\n\n【上期已報導標題（請勿重複這些話題）】\n" + "\n".join(f"- {t}" for t in sample)
+
     prompt = f"""你是一位頂尖的 AI 產業分析師，專門為繁體中文軟體開發團隊撰寫深度 AI 趨勢週報。
+
+【資訊來源比例規則】
+- 80% 內容來自歐美來源（Reddit、OpenAI Blog、Anthropic Blog、Google DeepMind、Product Hunt、Tech in Asia、CNA）
+- 20% 內容來自中文來源（機器之心、量子位）
+- 優先選取歐美大廠官方部落格（OpenAI / Anthropic / DeepMind）的第一手資訊
 
 【讀者背景】
 本報告的讀者是一家 43 人的軟體公司，其中：
@@ -205,9 +269,9 @@ def generate_report(raw_data: dict) -> str:
 
 本週發送日期：{date}（{year}年{month}月）
 
-以下是本週從 Reddit、Product Hunt、機器之心、量子位收集到的原始資料：
+以下是本週從多個來源收集到的原始資料：
 
-{context}
+{context}{prev_titles_str}
 
 請根據上述資料，結合你對 AI 產業的最新知識，用繁體中文撰寫一份深度每週 AI 快報。
 嚴格按照以下格式輸出（使用 Telegram HTML 格式，勿輸出任何額外說明文字）：
@@ -280,6 +344,7 @@ def generate_report(raw_data: dict) -> str:
 5. 研發精選工具涵蓋 Web（前端、LLM API）與 C++（推論、邊緣部署）兩類，合併呈現，不分團隊標籤，選 4～5 個最具代表性工具
 6. 深度觀察要聚焦軟體開發公司視角，有具體行動建議
 7. 全文繁體中文
+8. 若有【上期已報導標題】清單，該清單中出現的相同話題或新聞事件本期一律跳過，改選其他新內容
 """
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -418,23 +483,59 @@ def main(override_chat_ids=None):
         sys.exit(1)
     print(f"  📋 發送對象：{len(target)} 個 Chat ID（{', '.join(target)}）")
 
-    # 收集原始資料
+    # ── 讀取上期標題，供去重使用 ──────────────────────────────
+    prev_titles = load_prev_titles()
+    if prev_titles:
+        print(f"  🔁 載入上期標題 {len(prev_titles)} 則，將過濾重複新聞", flush=True)
+
+    def dedup(items):
+        """過濾與上期標題重複的條目"""
+        return [i for i in items if not _is_duplicate(i["title"], prev_titles)]
+
+    # ── 收集原始資料（80% 歐美，20% 中文）───────────────────
     print("📡 收集各來源資料中...")
     raw = {}
+
+    # ── 歐美來源（80%）────────────────────────────────────────
     print("  → Reddit（r/artificial / MachineLearning / LocalLLaMA / ChatGPT / singularity）")
-    raw["reddit"]      = fetch_reddit(top_n=8)
+    raw["reddit"] = dedup(fetch_reddit(top_n=10))
+
     print("  → Product Hunt（AI 工具篩選）")
-    raw["producthunt"] = fetch_rss("https://www.producthunt.com/feed",
-                                   "Product Hunt", max_items=6, ai_filter=True)
+    raw["producthunt"] = dedup(fetch_rss(
+        "https://www.producthunt.com/feed", "Product Hunt", max_items=6, ai_filter=True))
+
+    print("  → OpenAI Blog")
+    raw["openai"] = dedup(fetch_rss(
+        "https://openai.com/blog/rss.xml", "OpenAI Blog", max_items=4, ai_filter=False))
+
+    print("  → Anthropic Blog")
+    raw["anthropic"] = dedup(fetch_rss(
+        "https://www.anthropic.com/rss.xml", "Anthropic Blog", max_items=4, ai_filter=False))
+
+    print("  → Google DeepMind Blog")
+    raw["deepmind"] = dedup(fetch_rss(
+        "https://deepmind.google/blog/rss.xml", "Google DeepMind", max_items=4, ai_filter=False))
+
+    print("  → Tech in Asia（AI 篩選）")
+    raw["techinasia"] = dedup(fetch_rss(
+        "https://www.techinasia.com/feed", "Tech in Asia", max_items=4, ai_filter=True))
+
+    print("  → CNA Technology News")
+    raw["cna"] = dedup(fetch_rss(
+        "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=10416",
+        "CNA Tech", max_items=4, ai_filter=True))
+
+    # ── 中文來源（20%）────────────────────────────────────────
     print("  → 機器之心 jiqizhixin.com")
-    raw["jiqizhixin"]  = fetch_rss("https://www.jiqizhixin.com/rss",
-                                   "機器之心", max_items=5)
+    raw["jiqizhixin"] = dedup(fetch_rss(
+        "https://www.jiqizhixin.com/rss", "機器之心", max_items=4))
+
     print("  → 量子位 qbitai.com")
-    raw["qbitai"]      = fetch_rss("https://www.qbitai.com/feed",
-                                   "量子位", max_items=5)
+    raw["qbitai"] = dedup(fetch_rss(
+        "https://www.qbitai.com/feed", "量子位", max_items=3))
 
     total = sum(len(v) for v in raw.values())
-    print(f"\n  📊 共收集 {total} 則原始資料\n")
+    print(f"\n  📊 共收集 {total} 則原始資料（去重後）\n")
 
     # 呼叫 Claude 生成深度報告
     print("🧠 Claude 生成深度分析報告中（約 10～20 秒）...")
@@ -443,6 +544,11 @@ def main(override_chat_ids=None):
 
     # 存入快取，供後續 /preview 直接讀取
     save_report_cache(report)
+
+    # 儲存本期所有收集到的標題，供下期去重使用
+    all_titles = [item["title"] for items in raw.values() for item in items]
+    save_prev_titles(all_titles)
+    print(f"  📝 已儲存 {len(all_titles)} 則標題供下期去重使用", flush=True)
 
     # 發送 Email（若已設定 EMAIL_HOST 等環境變數）
     try:
