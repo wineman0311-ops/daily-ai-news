@@ -9,8 +9,10 @@
 環境變數：
   TELEGRAM_BOT_TOKEN  - Bot Token（必填）
   ANTHROPIC_API_KEY   - Claude API Key（必填）
-  SCHEDULE_DAY        - 星期幾發送，預設 monday
-  SCHEDULE_TIME       - 發送時間 HH:MM，預設 08:00
+  SCHEDULE_DAY        - 第一次發送：星期幾，預設 monday
+  SCHEDULE_TIME       - 第一次發送：時間 HH:MM，預設 08:00
+  SCHEDULE_DAY_2      - 第二次發送：星期幾（選填，不設定 = 每週只發一次）
+  SCHEDULE_TIME_2     - 第二次發送：時間 HH:MM，預設 08:00（SCHEDULE_DAY_2 有效時才生效）
   DATA_DIR            - 訂閱者資料目錄，預設 ./data（Zeabur 請掛載 Volume）
   TZ                  - 時區，預設 Asia/Taipei
 """
@@ -48,10 +50,12 @@ import daily_ai_news
 import subscribers as sub_mgr
 
 # ── 設定 ─────────────────────────────────────────────────────
-BOT_TOKEN     = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-SCHEDULE_DAY  = os.environ.get("SCHEDULE_DAY",  "monday").strip().lower()
-SCHEDULE_TIME = os.environ.get("SCHEDULE_TIME", "08:00").strip()
-TZ            = os.environ.get("TZ", "Asia/Taipei")
+BOT_TOKEN      = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+SCHEDULE_DAY   = os.environ.get("SCHEDULE_DAY",   "monday").strip().lower()
+SCHEDULE_TIME  = os.environ.get("SCHEDULE_TIME",  "08:00").strip()
+SCHEDULE_DAY_2 = os.environ.get("SCHEDULE_DAY_2", "").strip().lower()   # 空字串 = 不啟用第二次
+SCHEDULE_TIME_2= os.environ.get("SCHEDULE_TIME_2","08:00").strip()
+TZ             = os.environ.get("TZ", "Asia/Taipei")
 
 # 新場關鍵字 log 路徑（與訂閱者資料同目錄）
 DATA_DIR      = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
@@ -78,6 +82,25 @@ def _is_english(update: Update) -> bool:
     lang = (update.effective_user.language_code or "").lower()
     return lang.startswith("en")
 
+
+def _schedule_label(en: bool) -> str:
+    """回傳排程說明文字，支援單次或每週兩次發送"""
+    day1 = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    has_second = SCHEDULE_DAY_2 and SCHEDULE_DAY_2 in DAY_VALID
+
+    if has_second:
+        day2 = DAY_EN.get(SCHEDULE_DAY_2, SCHEDULE_DAY_2) if en else DAY_ZH.get(SCHEDULE_DAY_2, SCHEDULE_DAY_2)
+        if en:
+            return f"Every {day1} at {SCHEDULE_TIME} & {day2} at {SCHEDULE_TIME_2}"
+        else:
+            return f"每{day1} {SCHEDULE_TIME} 及 每{day2} {SCHEDULE_TIME_2}"
+    else:
+        if en:
+            return f"Every {day1} at {SCHEDULE_TIME}"
+        else:
+            return f"每{day1} {SCHEDULE_TIME}"
+
+
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.WARNING,
@@ -93,7 +116,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username   = update.effective_user.username
     first_name = update.effective_user.first_name or ("Friend" if _is_english(update) else "朋友")
     en         = _is_english(update)
-    day_label  = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    sched      = _schedule_label(en)
 
     # 第一次加入時自動訂閱
     is_new = sub_mgr.subscribe(chat_id, username, first_name)
@@ -105,7 +128,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "I automatically collect the latest AI news from Reddit, Product Hunt, and top tech media "
                 "every week, then send you a deep-dive report powered by Claude AI.\n\n"
                 "✅ <b>You've been subscribed automatically!</b>\n"
-                f"📅 You'll receive the AI Weekly Report every {day_label} at {SCHEDULE_TIME} ({TZ}).\n\n"
+                f"📅 Delivery schedule: {sched} ({TZ}).\n\n"
                 "📌 <b>Available commands:</b>\n"
                 "  /subscribe   — Subscribe to the weekly AI report\n"
                 "  /unsubscribe — Unsubscribe\n"
@@ -120,7 +143,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "我每週自動彙整來自 Reddit、Product Hunt、機器之心、量子位的最新 AI 資訊，"
                 "並透過 Claude AI 深度分析後發送給您。\n\n"
                 "✅ <b>已自動為您開啟訂閱！</b>\n"
-                f"📅 每{day_label} {SCHEDULE_TIME}（{TZ}）您將收到 AI 週報。\n\n"
+                f"📅 發送排程：{sched}（{TZ}）\n\n"
                 "📌 <b>可用指令：</b>\n"
                 "  /subscribe   — 訂閱每週 AI 快報\n"
                 "  /unsubscribe — 取消訂閱\n"
@@ -140,7 +163,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "  /unsubscribe — Unsubscribe\n"
                 "  /status      — Check subscription status\n"
                 "  /preview     — Get the latest report now (~30 sec)\n\n"
-                f"⏰ <b>Delivery time:</b> Every {day_label} at {SCHEDULE_TIME} ({TZ})",
+                f"⏰ <b>Delivery schedule:</b> {sched} ({TZ})",
                 parse_mode="HTML",
             )
         else:
@@ -152,7 +175,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "  /unsubscribe — 取消訂閱\n"
                 "  /status      — 查看訂閱狀態與人數\n"
                 "  /preview     — 立即取得最新一期快報（約需 30 秒）\n\n"
-                f"⏰ <b>發送時間：</b>每{day_label} {SCHEDULE_TIME}（{TZ}）",
+                f"⏰ <b>發送排程：</b>{sched}（{TZ}）",
                 parse_mode="HTML",
             )
 
@@ -162,21 +185,21 @@ async def cmd_subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username   = update.effective_user.username
     first_name = update.effective_user.first_name or ""
     en         = _is_english(update)
-    day_label  = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    sched      = _schedule_label(en)
 
     is_new = sub_mgr.subscribe(chat_id, username, first_name)
     if is_new:
         if en:
             await update.message.reply_text(
                 f"✅ <b>Subscribed successfully!</b>\n\n"
-                f"You'll receive the AI Weekly Report every {day_label} at {SCHEDULE_TIME}.\n"
+                f"Delivery schedule: {sched}.\n"
                 "Use /unsubscribe to cancel anytime.",
                 parse_mode="HTML",
             )
         else:
             await update.message.reply_text(
                 f"✅ <b>訂閱成功！</b>\n\n"
-                f"您將在每{day_label} {SCHEDULE_TIME} 收到 AI 週報。\n"
+                f"發送排程：{sched}\n"
                 "輸入 /unsubscribe 可隨時取消。",
                 parse_mode="HTML",
             )
@@ -231,13 +254,13 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subscribed = sub_mgr.is_subscribed(chat_id)
     count      = sub_mgr.get_count()
     en         = _is_english(update)
-    day_label  = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    sched      = _schedule_label(en)
 
     if en:
         status_icon = "✅ Subscribed" if subscribed else "❌ Not subscribed"
         await update.message.reply_text(
             f"📊 <b>Subscription:</b> {status_icon}\n"
-            f"⏰ <b>Delivery:</b> Every {day_label} at {SCHEDULE_TIME}\n"
+            f"⏰ <b>Delivery:</b> {sched}\n"
             f"🌏 <b>Timezone:</b> {TZ}\n"
             f"👥 <b>Total subscribers:</b> {count}",
             parse_mode="HTML",
@@ -246,7 +269,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_icon = "✅ 已訂閱" if subscribed else "❌ 未訂閱"
         await update.message.reply_text(
             f"📊 <b>訂閱狀態：</b>{status_icon}\n"
-            f"⏰ <b>發送時間：</b>每{day_label} {SCHEDULE_TIME}\n"
+            f"⏰ <b>發送排程：</b>{sched}\n"
             f"🌏 <b>時區：</b>{TZ}\n"
             f"👥 <b>目前訂閱人數：</b>{count} 人",
             parse_mode="HTML",
@@ -331,8 +354,8 @@ def _log_xinchang(entry: str):
 
 async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """處理所有未知指令，回覆無此指令並附上說明"""
-    en        = _is_english(update)
-    day_label = DAY_EN.get(SCHEDULE_DAY, SCHEDULE_DAY) if en else DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    en    = _is_english(update)
+    sched = _schedule_label(en)
 
     if en:
         await update.message.reply_text(
@@ -343,7 +366,7 @@ async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "  /unsubscribe — Unsubscribe\n"
             "  /status      — Check subscription status\n"
             "  /preview     — Get the latest report now\n\n"
-            f"⏰ <b>Delivery time:</b> Every {day_label} at {SCHEDULE_TIME} ({TZ})",
+            f"⏰ <b>Delivery schedule:</b> {sched} ({TZ})",
             parse_mode="HTML",
         )
     else:
@@ -355,7 +378,7 @@ async def cmd_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "  /unsubscribe — 取消訂閱\n"
             "  /status      — 查看訂閱狀態與人數\n"
             "  /preview     — 立即取得最新一期快報\n\n"
-            f"⏰ <b>發送時間：</b>每{day_label} {SCHEDULE_TIME}（{TZ}）",
+            f"⏰ <b>發送排程：</b>{sched}（{TZ}）",
             parse_mode="HTML",
         )
 
@@ -517,16 +540,26 @@ def _run_scheduler():
         print(f"❌ SCHEDULE_DAY 無效：'{SCHEDULE_DAY}'，可用值：{DAY_VALID}", flush=True)
         sys.exit(1)
 
+    # ── 第一次排程 ──────────────────────────────────────────────
     getattr(schedule.every(), SCHEDULE_DAY).at(SCHEDULE_TIME).do(_weekly_job)
+    day1_zh = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    print(f"⏰ 第一排程：每{day1_zh} {SCHEDULE_TIME}", flush=True)
+
+    # ── 第二次排程（選填）────────────────────────────────────────
+    if SCHEDULE_DAY_2 and SCHEDULE_DAY_2 in DAY_VALID:
+        getattr(schedule.every(), SCHEDULE_DAY_2).at(SCHEDULE_TIME_2).do(_weekly_job)
+        day2_zh = DAY_ZH.get(SCHEDULE_DAY_2, SCHEDULE_DAY_2)
+        print(f"⏰ 第二排程：每{day2_zh} {SCHEDULE_TIME_2}", flush=True)
+    elif SCHEDULE_DAY_2:
+        print(f"⚠️ SCHEDULE_DAY_2 無效：'{SCHEDULE_DAY_2}'，第二排程已略過", flush=True)
 
     # 每月 1 日 00:05 清理上個月的新場 log
     schedule.every().day.at("00:05").do(
         lambda: _cleanup_xinchang_log() if datetime.now().day == 1 else None
     )
 
-    day_zh   = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
     next_run = schedule.next_run()
-    print(f"⏰ 排程：每{day_zh} {SCHEDULE_TIME} | 下次：{next_run.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+    print(f"   下次執行：{next_run.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
     print(f"🗑️ 排程：每月 1 日 00:05 自動清除上月新場 log", flush=True)
 
     while True:
@@ -553,10 +586,10 @@ def main():
     t = threading.Thread(target=_run_scheduler, daemon=True)
     t.start()
 
-    day_zh = DAY_ZH.get(SCHEDULE_DAY, SCHEDULE_DAY)
+    sched_zh = _schedule_label(False)
     print("=" * 54, flush=True)
     print("  🤖 AI 快報 Bot 啟動", flush=True)
-    print(f"  排程：每{day_zh} {SCHEDULE_TIME}（{TZ}）", flush=True)
+    print(f"  排程：{sched_zh}（{TZ}）", flush=True)
     print(f"  訂閱人數：{sub_mgr.get_count()} 人", flush=True)
     print(f"  啟動時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
     print("=" * 54, flush=True)
